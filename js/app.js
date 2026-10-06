@@ -443,18 +443,38 @@ function grammarIds(topic) {
 }
 const ALL_GRAMMAR_IDS = GRAMMAR_TOPICS.flatMap((t) => grammarIds(t.id));
 const itemMastered = (id, need = 2) => (S.items[id] || {}).s >= need;
+
+/* Fortschritt mit Teilpunkten: einmal richtig zählt schon halb, gemeistert (2× richtig) zählt voll. */
+function cardCredit(id) {
+  const c = S.cards[id];
+  const b = c ? c.b : -1;
+  return b >= 3 ? 1 : b === 2 ? 0.5 : b === 1 ? 0.25 : 0;
+}
+function itemCredit(id) {
+  const s = (S.items[id] || {}).s || 0;
+  return s >= 2 ? 1 : s === 1 ? 0.5 : 0;
+}
+function textCredit(id) {
+  if (itemMastered(id, 1)) return 1;
+  return ((S.stats.best[id] || 0) / 100) * 0.5;
+}
+function progress(ids, credit) {
+  if (!ids.length) return 0;
+  const sum = ids.reduce((a, id) => a + credit(id), 0);
+  return sum > 0 ? Math.max(1, Math.round((sum / ids.length) * 100)) : 0;
+}
 function mastery() {
-  const vocab = pct(VOCAB.filter((v) => (S.cards[v.id] || {}).b >= 3).length, VOCAB.length);
-  const verbs = pct(VERBS.filter((v) => (S.cards[v.id] || {}).b >= 3).length, VERBS.length);
-  const grammar = pct(ALL_GRAMMAR_IDS.filter((id) => itemMastered(id)).length, ALL_GRAMMAR_IDS.length);
-  const stories = pct(STORIES.filter((s) => itemMastered("st." + s.id, 1)).length, STORIES.length);
-  const listen = pct(LISTENING.filter((l) => itemMastered("ls." + l.id, 1)).length, LISTENING.length);
-  const reading = pct(READING.filter((_, i) => itemMastered("rd." + i, 1)).length, READING.length);
+  const vocab = progress(VOCAB.map((v) => v.id), cardCredit);
+  const verbs = progress(VERBS.map((v) => v.id), cardCredit);
+  const grammar = progress(ALL_GRAMMAR_IDS, itemCredit);
+  const stories = progress(STORIES.map((x) => "st." + x.id), textCredit);
+  const listen = progress(LISTENING.map((l) => "ls." + l.id), textCredit);
+  const reading = progress(READING.map((_, i) => "rd." + i), (id) => (itemMastered(id, 1) ? 1 : 0));
   const ready = Math.round(vocab * 0.25 + verbs * 0.2 + grammar * 0.3 + stories * 0.1 + listen * 0.1 + reading * 0.05);
   return { vocab, verbs, grammar, stories, listen, reading, ready };
 }
-function topicMastery(topic) { const ids = grammarIds(topic); return pct(ids.filter((id) => itemMastered(id)).length, ids.length); }
-function groupMastery(g) { const list = VOCAB.filter((v) => v.g === g); return pct(list.filter((v) => (S.cards[v.id] || {}).b >= 3).length, list.length); }
+function topicMastery(topic) { return progress(grammarIds(topic), itemCredit); }
+function groupMastery(g) { return progress(VOCAB.filter((v) => v.g === g).map((v) => v.id), cardCredit); }
 
 /* ---------- Aufgaben-Fabriken ---------- */
 function vocabInput(id) {
@@ -592,23 +612,60 @@ function itemById(id) {
 }
 
 /* Auswahl: Leitner-Karten (Vokabeln, Verben) */
+/* Eine Runde mischt: zuletzt falsche Aufgaben, einmal richtige zum Bestätigen und neue. */
+function takeMix(n, pools) {
+  const out = [], used = new Set();
+  for (const p of pools) {
+    let taken = 0;
+    for (const id of p.list) {
+      if (out.length >= n || (p.max !== undefined && taken >= p.max)) break;
+      if (!used.has(id)) { used.add(id); out.push(id); taken++; }
+    }
+  }
+  for (const p of pools) for (const id of p.list) {
+    if (out.length >= n) break;
+    if (!used.has(id)) { used.add(id); out.push(id); }
+  }
+  return shuffle(out);
+}
 function pickCards(ids, n) {
   const now = Date.now();
-  const interval = [0, 0.03, 0.5, 6, 24, 72];
-  return ids.map((id) => {
+  const interval = [0, 0.02, 0.15, 4, 20, 60];
+  const weak = [], confirm = [], fresh = [], review = [], later = [];
+  shuffle(ids).forEach((id) => {
     const c = S.cards[id];
-    const b = c ? c.b : -1;
-    const ageH = c ? (now - c.t) / 36e5 : 999;
-    const due = !c || ageH >= interval[clamp(b, 0, 5)];
-    return { id, k: (due ? 0 : 100) + (b + 1) * 10 + Math.random() * 12 };
-  }).sort((x, y) => x.k - y.k).slice(0, n).map((x) => x.id);
+    if (!c) { fresh.push(id); return; }
+    const due = (now - c.t) / 36e5 >= interval[clamp(c.b, 0, 5)];
+    if (!due) later.push(id);
+    else if (c.b <= 0) weak.push(id);
+    else if (c.b <= 2) confirm.push(id);
+    else review.push(id);
+  });
+  later.sort((a, b) => S.cards[a].b - S.cards[b].b);
+  review.sort((a, b) => S.cards[a].b - S.cards[b].b);
+  return takeMix(n, [
+    { list: weak, max: Math.ceil(n * 0.3) },
+    { list: confirm, max: Math.ceil(n * 0.4) },
+    { list: fresh },
+    { list: review },
+    { list: later }
+  ]);
 }
 function pickItems(ids, n) {
-  return ids.map((id) => {
+  const weak = [], confirm = [], fresh = [], done = [];
+  shuffle(ids).forEach((id) => {
     const it = S.items[id];
-    const s = it ? it.s : -1;
-    return { id, k: Math.min(s, 3) * 10 + Math.random() * 12 };
-  }).sort((x, y) => x.k - y.k).slice(0, n).map((x) => x.id);
+    if (!it) fresh.push(id);
+    else if (it.s === 0) weak.push(id);
+    else if (it.s === 1) confirm.push(id);
+    else done.push(id);
+  });
+  return takeMix(n, [
+    { list: weak, max: Math.ceil(n * 0.3) },
+    { list: confirm, max: Math.ceil(n * 0.4) },
+    { list: fresh },
+    { list: done }
+  ]);
 }
 
 /* =========================================================
@@ -623,7 +680,7 @@ const Sess = {
     const items = opts.items.filter(Boolean);
     if (!items.length) { toast("Hier gibt es gerade nichts zu üben.", "bad"); return; }
     this.st = {
-      opts, title: opts.title, mod: opts.mod, queue: items.slice(), i: 0, exam: !!opts.exam,
+      opts, title: opts.title, mod: opts.mod, queue: items.slice(), i: 0, exam: !!opts.exam, before: mastery(), beforeProg: opts.prog ? opts.prog.calc() : null,
       combo: 0, maxCombo: 0, xp: 0, ok: 0, bad: 0, mistakes: [], requeued: new Set(), log: [], startCount: items.length
     };
     window.scrollTo(0, 0);
@@ -1075,6 +1132,12 @@ const Sess = {
     const acc = pct(st.ok, total);
     const stars = acc >= 90 ? 3 : acc >= 70 ? 2 : acc >= 40 ? 1 : 0;
     const mistakes = st.mistakes.slice(0, 30);
+    const after = mastery();
+    const PKEY = { vocab: ["vocab", "📚 Vokabeln"], verbs: ["verbs", "⚡ Verben"], grammar: ["grammar", "🧩 Grammatik"], stories: ["stories", "✍️ Lückentexte"], listen: ["listen", "🎧 Hören"], reading: ["reading", "📖 Text-Check"] };
+    let [pk, pname] = PKEY[st.mod] || ["ready", "🎯 Prüfungs-Bereitschaft"];
+    let pb = st.before[pk], pa = after[pk];
+    if (st.opts.prog) { pname = st.opts.prog.name; pb = st.beforeProg; pa = st.opts.prog.calc(); }
+    const progHTML = `<div class="prog-gain"><span>${pname}</span>${bar(pa)}<b>${pb} % → ${pa} %</b>${pa > pb ? `<span class="xp-pop">+${pa - pb} %</span>` : ""}</div>`;
     const show = () => {
       app().innerHTML = `
         <section class="results card pop-in">
@@ -1088,6 +1151,7 @@ const Sess = {
             <div class="stat"><b>${st.maxCombo}</b><span>beste Combo</span></div>
           </div>
           ${bonus ? `<p class="small muted">inkl. Abschluss-Bonus +${bonus} XP</p>` : ""}
+          ${progHTML}
           ${mistakes.length ? `<h3>Das übst du nochmal:</h3><ul class="review">${mistakes.map((m) => `<li><span class="rq">${esc(m.q)}</span><span class="ra en">→ ${esc(m.a)}</span>${m.given ? `<span class="rg">deine Antwort: ${esc(m.given)}</span>` : ""}</li>`).join("")}</ul>` : ""}
           <div class="row-c">
             ${st.opts.rebuild ? `<button class="btn primary" id="again">Nochmal 🔁</button>` : ""}
@@ -1354,7 +1418,7 @@ function viewHome() {
         <span class="mod-icon">${mod.icon}</span>
         <span class="mod-name">${esc(mod.name)}</span>
         <span class="mod-sub">${esc(mod.sub)}</span>
-        ${mod.key ? `${bar(m[mod.key])}<span class="mod-pct">${m[mod.key]} % gemeistert</span>` : `<span class="mod-pct">Bonus-XP</span>`}
+        ${mod.key ? `${bar(m[mod.key])}<span class="mod-pct">${m[mod.key]} % Fortschritt</span>` : `<span class="mod-pct">Bonus-XP</span>`}
       </a>`).join("")}
       <a class="mod card c-boss" href="#/exam">
         <span class="mod-icon">🏆</span>
@@ -1405,7 +1469,7 @@ function viewVocab() {
         <button class="mode ${weak.length ? "" : "dim"}" data-m="weak"><span>🎯</span><b>Schwache Wörter</b><small>${weak.length} Wörter</small></button>
         <a class="mode" href="#/words"><span>📋</span><b>Wortliste</b><small>Alle Wörter ansehen</small></a>
       </div>
-      <p class="small muted">Das Spiel merkt sich jedes Wort: Was du kannst, kommt seltener – was schwer ist, öfter. Ein Wort gilt als gemeistert, wenn du es mehrmals richtig hattest.</p>
+      <p class="small muted">Das Spiel merkt sich jedes Wort: Was du kannst, kommt seltener – was schwer ist, öfter. Einmal richtig zählt schon halb, zweimal richtig heißt gemeistert. Wörter, die du einmal richtig hattest, kommen bald zur Bestätigung wieder.</p>
     </div>`;
   $$(".group").forEach((b) => (b.onclick = () => {
     const g = b.dataset.g;
@@ -1423,7 +1487,8 @@ function viewVocab() {
     } else {
       build = () => pickCards(ids(), 12).map((id) => mode === "flash" ? vocabFlash(id) : mode === "input" ? vocabInput(id) : mode === "mc" ? vocabMC(id) : (Math.random() < 0.55 ? vocabInput(id) : vocabMC(id)));
     }
-    Sess.start({ title: "Vokabeln · " + b.querySelector("b").textContent, mod: "vocab", items: build(), rebuild: build, back: "#/vocab" });
+    const prog = { name: "📚 Gewählte Seiten", calc: () => progress(ids(), cardCredit) };
+    Sess.start({ title: "Vokabeln · " + b.querySelector("b").textContent, mod: "vocab", items: build(), rebuild: build, back: "#/vocab", prog });
   }));
 }
 
@@ -1461,7 +1526,7 @@ function viewVerbs() {
   app().innerHTML = `
     <div class="page-head"><a class="back" href="#/">←</a><h1>⚡ Unregelmäßige Verben</h1></div>
     <div class="card">
-      <div class="row-between"><div><b>${VERBS.length} Verben</b> · ${m.verbs} % gemeistert</div><div class="muted small">Rekord Verb-Blitz: <b>${S.stats.blitzBest}</b></div></div>
+      <div class="row-between"><div><b>${VERBS.length} Verben</b> · ${m.verbs} % Fortschritt</div><div class="muted small">Rekord Verb-Blitz: <b>${S.stats.blitzBest}</b></div></div>
       ${bar(m.verbs)}
       <div class="modes">
         <button class="mode" data-m="past"><span>➡️</span><b>Simple Past bilden</b><small>go → went</small></button>
@@ -1575,7 +1640,7 @@ function viewGrammar() {
     <div class="page-head"><a class="back" href="#/">←</a><h1>🧩 Grammatik: Simple Past</h1></div>
     <a class="card rules-link" href="#/rules"><span class="mod-icon">📌</span><div><b>Spickzettel: Alle Regeln</b><div class="muted small">Zuerst lesen, dann üben – mit Beispielen und typischen Fehlern</div></div><span class="arrow">→</span></a>
     <div class="card">
-      <div class="row-between"><b>Gesamt</b><span>${m.grammar} % gemeistert</span></div>${bar(m.grammar)}
+      <div class="row-between"><b>Gesamt</b><span>${m.grammar} % Fortschritt</span></div>${bar(m.grammar)}
       <div class="topic-list">${GRAMMAR_TOPICS.map((t) => `
         <button class="topic" data-t="${t.id}"><span class="t-icon">${t.icon}</span><span class="t-txt"><b>${esc(t.name)}</b><small>${esc(t.desc)}</small></span><span class="t-pct">${topicMastery(t.id)} %</span></button>`).join("")}
         <button class="topic mix" data-t="all"><span class="t-icon">🎲</span><span class="t-txt"><b>Grammatik-Mix</b><small>Von allem etwas – wie in der Arbeit</small></span><span class="t-pct">→</span></button>
@@ -1584,8 +1649,10 @@ function viewGrammar() {
   $$(".topic").forEach((b) => (b.onclick = () => {
     const t = b.dataset.t;
     const build = () => (t === "all" ? pickItems(ALL_GRAMMAR_IDS, 12) : pickItems(grammarIds(t), 10)).map(grammarItem);
-    const name = t === "all" ? "Grammatik-Mix" : GRAMMAR_TOPICS.find((x) => x.id === t).name;
-    Sess.start({ title: name, mod: "grammar", items: build(), rebuild: build, back: "#/grammar" });
+    const topic = GRAMMAR_TOPICS.find((x) => x.id === t);
+    const name = t === "all" ? "Grammatik-Mix" : topic.name;
+    const prog = t === "all" ? null : { name: `${topic.icon} ${topic.name}`, calc: () => topicMastery(t) };
+    Sess.start({ title: name, mod: "grammar", items: build(), rebuild: build, back: "#/grammar", prog });
   }));
 }
 
