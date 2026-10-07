@@ -118,13 +118,13 @@ const VERBS = IRREGULAR_RAW.map(([base, past, de, alt]) => ({ id: "iv." + slug(b
 const VERB_BY_ID = Object.fromEntries(VERBS.map((v) => [v.id, v]));
 
 const PAST_ONLY = {};
-VERBS.forEach((v) => {
-  const b = canon(v.base).split(" ")[0];
-  canon(v.past).split(" ").forEach((p) => { if (p !== b && p !== "up" && p !== "was" && p !== "were") PAST_ONLY[p] = b; });
+[...IRREGULAR_ALL, ...IRREGULAR_RAW].forEach(([base, past]) => {
+  const b = canon(base).split(" ")[0];
+  canon(past).split(" ").forEach((p) => { if (p !== b && p !== "up" && p !== "was" && p !== "were") PAST_ONLY[p] = b; });
 });
 const REG_PAST = {};
 REGULAR_RAW.forEach(([b, p]) => { REG_PAST[p] = b; });
-const BASES = new Set([...VERBS.map((v) => canon(v.base).split(" ")[0]), ...REGULAR_RAW.map((r) => r[0]),
+const BASES = new Set([...[...IRREGULAR_ALL, ...IRREGULAR_RAW].map((v) => canon(v[0]).split(" ")[0]), ...REGULAR_RAW.map((r) => r[0]),
   "show", "miss", "need", "tell", "send", "learn", "turn", "post", "fix", "wish", "kiss", "pass", "touch", "rain", "film", "work"]);
 const ED_OK = new Set(["need", "feed", "bleed", "speed", "seed", "red", "bed", "shed", "wed", "led", "fed", "shred"]);
 
@@ -420,7 +420,7 @@ function checkMasteryBadges() {
   const im = VERBS.filter((v) => (S.cards[v.id] || {}).b >= 3).length;
   if (vm >= 50) award("vocab50");
   if (vm >= 150) award("vocab150");
-  if (im >= 30) award("verbs30");
+  if (im >= Math.ceil(VERBS.length / 2)) award("verbs30");
   if (im >= VERBS.length) award("verbsAll");
 }
 
@@ -506,7 +506,7 @@ function vocabFlash(id) {
 function verbInput(id) {
   const v = VERB_BY_ID[id];
   return {
-    id, kind: "input", mod: "verbs", card: true, label: "Unregelmäßiges Verb · Simple Past bilden",
+    id, kind: "input", mod: "verbs", card: true, label: "Verb · Simple Past bilden",
     prompt: `<div class="big en">${esc(v.base)}</div><div class="tag">${esc(v.de)}</div>`,
     answers: [v.past, ...v.alt], a: v.past, q: v.base, say: `${v.base}. ${v.past.replace("/", ", ")}`, placeholder: "Simple-Past-Form …"
   };
@@ -515,7 +515,7 @@ function verbReverse(id) {
   const v = VERB_BY_ID[id];
   const shown = v.base === "be" ? pick(["was", "were"]) : v.past.replace(" (up)", "");
   return {
-    id: id + ".r", cardId: id, kind: "input", mod: "verbs", card: true, label: "Unregelmäßiges Verb · Grundform finden",
+    id: id + ".r", cardId: id, kind: "input", mod: "verbs", card: true, label: "Verb · Grundform finden",
     prompt: `<div class="big en">${esc(shown)}</div><div class="tag">Wie heißt die Grundform?</div>`,
     answers: [v.base, v.base.replace(" (up)", ""), "to " + v.base.replace(" (up)", "")], a: v.base, q: shown, say: `${v.base}. ${v.past.replace("/", ", ")}`, placeholder: "Grundform …"
   };
@@ -1532,17 +1532,14 @@ function viewVerbs() {
         <button class="mode" data-m="past"><span>➡️</span><b>Simple Past bilden</b><small>go → went</small></button>
         <button class="mode" data-m="base"><span>⬅️</span><b>Grundform finden</b><small>went → go</small></button>
         <button class="mode" data-m="blitz"><span>🌩️</span><b>Verb-Blitz</b><small>60 Sekunden – so viele wie möglich!</small></button>
-        <button class="mode" data-m="fromtext"><span>📗</span><b>Aus dem Buch</b><small>Die Verben von S. 17 & WB 9</small></button>
         <a class="mode" href="#/verblist"><span>📋</span><b>Liste</b><small>Alle Verben ansehen</small></a>
       </div>
-      <p class="small muted">Tipp aus dem Buch: Für unregelmäßige Formen gibt es keine Regeln – du musst sie auswendig lernen. Hier geht das am schnellsten durch Wiederholen.</p>
+      <p class="small muted">Das sind die Verben aus deinem Heft. Für unregelmäßige Formen gibt es keine Regeln – du musst sie auswendig lernen. <b>want</b> und <b>try</b> sind regelmäßig, aber achte auf die Schreibung: tr<b>ied</b>.</p>
     </div>`;
   $$(".mode[data-m]").forEach((b) => (b.onclick = () => {
     const mode = b.dataset.m;
     if (mode === "blitz") return startBlitz();
-    const bookVerbs = ["do", "have", "fly", "take", "go", "give", "feel", "think", "come", "leave", "forget", "be", "say", "send", "see", "know", "eat", "sing"];
     const build = () => {
-      if (mode === "fromtext") return shuffle(bookVerbs.map((x) => "iv." + x)).slice(0, 12).map((id) => Math.random() < 0.75 ? verbInput(id) : verbReverse(id));
       const ids = pickCards(VERBS.map((v) => v.id), 12);
       return ids.map((id) => mode === "past" ? verbInput(id) : verbReverse(id));
     };

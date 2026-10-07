@@ -241,8 +241,35 @@ const VOCAB_RAW = [
   ["during", "während", "s3", { n: "+ noun" }]
 ];
 
-/* Unregelmäßige Verben: [Grundform, Simple Past, deutsch, weitere richtige Antworten] */
+/* Verbliste aus Max' Heft – nur diese Verben werden geübt.
+   [Grundform, Simple Past, deutsch, weitere richtige Antworten] */
 const IRREGULAR_RAW = [
+  ["feel", "felt", "(sich) fühlen"],
+  ["fly", "flew", "fliegen"],
+  ["give", "gave", "geben"],
+  ["go", "went", "gehen; fahren"],
+  ["have", "had", "haben"],
+  ["take", "took", "nehmen; (mit)bringen"],
+  ["think", "thought", "denken; glauben"],
+  ["do", "did", "tun; machen"],
+  ["forget", "forgot", "vergessen"],
+  ["come", "came", "kommen"],
+  ["sell", "sold", "verkaufen"],
+  ["wear", "wore", "tragen (Kleidung)"],
+  ["be", "was/were", "sein", ["was", "were", "was were", "were was"]],
+  ["say", "said", "sagen"],
+  ["eat", "ate", "essen"],
+  ["sing", "sang", "singen"],
+  ["win", "won", "gewinnen"],
+  ["read", "read", "lesen"],
+  ["see", "saw", "sehen"],
+  ["want", "wanted", "wollen"],
+  ["try", "tried", "versuchen; probieren"],
+  ["understand", "understood", "verstehen"]
+];
+
+/* Größere Liste nur für die Fehlererkennung (z. B. „didn't drove“), wird nicht abgefragt. */
+const IRREGULAR_ALL = [
   ["be", "was/were", "sein", ["was", "were", "was were", "were was"]],
   ["become", "became", "werden"],
   ["begin", "began", "beginnen; anfangen"],
@@ -726,7 +753,7 @@ const BADGES = [
   { id: "perfect",  icon: "✨", name: "Fehlerfrei",            desc: "Eine Übung ganz ohne Fehler." },
   { id: "vocab50",  icon: "📚", name: "Wortsammler",           desc: "50 Vokabeln gemeistert." },
   { id: "vocab150", icon: "🧠", name: "Wörterbuch auf Beinen", desc: "150 Vokabeln gemeistert." },
-  { id: "verbs30",  icon: "⚡", name: "Verb-Profi",            desc: "30 unregelmäßige Verben gemeistert." },
+  { id: "verbs30",  icon: "⚡", name: "Verb-Profi",            desc: "Die Hälfte der Verben gemeistert." },
   { id: "verbsAll", icon: "👑", name: "Verb-König",            desc: "Alle unregelmäßigen Verben gemeistert." },
   { id: "blitz15",  icon: "🌩️", name: "Blitzschnell",          desc: "15 Punkte im Verb-Blitz." },
   { id: "listen5",  icon: "🎧", name: "Gute Ohren",            desc: "5 Hörübungen abgeschlossen." },
